@@ -1,4 +1,4 @@
-#!/usr/bin/python
+﻿#!/usr/bin/python
 """
 Control Vmware from Python. Used the vmrun.exe
 
@@ -6,444 +6,470 @@ Control Vmware from Python. Used the vmrun.exe
 @date   : 2008/03/15
 """
 
-__description__ = "Control Vmware from Python. Used the vmrun.exe"
-__author__      = "Binjo"
-__version__     = "0.1.4"
-__date__        = "2010/08/24"
-__license__     = "GNU GPL v2"
+__description__ = 'Control Vmware from Python. Used the vmrun.exe'
+__author__      = 'Binjo'
+__version__     = '0.1.5'
+__date__        = '2016/07/04'
+__license__     = 'GNU GPL v2'
 
 #
 # Based on vmrun-ruby, Alexander Sotirov <asotirov@determina.com>
 #
 import os
 import subprocess
+import sys
 
 class Vmrun:
 
-    def execute( self, path, *cmd ):
+    def execute(self, path, *cmd):
 
-        cmds   = list(cmd)
-        cmds.insert( 1, "\"%s\"" % self.VM_FILE )
-        cmds[0] = "-T ws -gu %s -gp %s %s" % (self.VM_ADMIN, self.VM_PASS, cmds[0])
-        params = " ".join( cmds )
+        cmds = list(cmd)
+        cmds.insert(1, '{}'.format(self.VM_FILE))
+        cmds[0] = '-T ws -gu {} -gp {} {}'.format(self.VM_ADMIN, self.VM_PASS, cmds[0])
+        params = ' '.join(cmds)
 
-        if self.DEBUG: print "[DEBUG] %s" % params
+        # TODO: Setup logging
+        if self.DEBUG:
+            print('[DEBUG] {}'.format(params))
 
-        if os.sys.platform == "win32":
-            cmd = "%s %s" % (path, params)
+        if sys.platform.startswith('win'):
+            cmd = '{} {}'.format(path, params)
         else:
-            cmd = ["sh", "-c", "%s %s" % (path, params)]
+            # TODO: Evaluate why sh -c is needed
+            cmd = ['sh','-c', '{} {}'.format(path, params)]
 
-        p = subprocess.Popen( cmd, stdout=subprocess.PIPE )
+        proc = subprocess.Popen(cmd, stdout=subprocess.PIPE)
 
-        return p.stdout.readlines()
+        return proc.stdout.readlines()
 
     def vmrun(self, *cmd):
-        output = self.execute( self.VMRUN_PATH, *cmd )
+        output = self.execute(self.VMRUN_PATH, *cmd)
 
         return output
 
-    # TODO maintain vm's power state
-    def __init__( self, vmx, user='', password='', vmrun='', debug=False ):
-
-        self.VM_FILE    =   vmx         # TODO strict censor?
-        self.VM_ADMIN   =   user
-        self.VM_PASS    =   password
-        self.DEBUG      =   debug
-
+    def _get_vmrun_path(self, vmrun):
+        """
+        Private method used to determine the location of the vmrun executable and then
+        populate the VMRUN_PATH class variable. This method will resolve the location of the
+        executable in the following order:
+            1. Constructor specified vmrun argument
+            2. Lookup using the Registry (Windows)
+            3. Walk the PATH variable (Other)
+        """
         if vmrun != '':
             self.VMRUN_PATH = vmrun
         else:
-            if os.sys.platform == "win32":
-                # get vmrun.exe's full path via registry
-                import _winreg
-                reg = _winreg.ConnectRegistry( None, _winreg.HKEY_LOCAL_MACHINE )
+            if sys.platform.startswith('win'):
                 try:
-                    rh = _winreg.OpenKey( reg, r'SOFTWARE\VMware, Inc.\VMware Workstation' )
-                    try:
-                        vw_dir = _winreg.QueryValueEx( rh, 'InstallPath' )[0]
-                    finally:
-                        _winreg.CloseKey( rh )
+                    import _winreg as winreg
+                except ImportError:
+                    import winreg
+
+                vmware_dir = ''
+                reg = winreg.ConnectRegistry(None, winreg.HKEY_LOCAL_MACHINE)
+                sub_key = r'SOFTWARE\VMware, Inc.\VMware Workstation'
+                res = 0
+                sam = winreg.KEY_READ | winreg.KEY_WOW64_32KEY
+
+                try:
+                    with winreg.OpenKey(reg, sub_key, res, sam) as hkey:
+                        value_name = 'InstallPath'
+                        vmware_dir = winreg.QueryValueEx(hkey, value_name)[0]
                 finally:
                     reg.Close()
 
-                if vw_dir != '':
-                    self.VMRUN_PATH = vw_dir + 'vmrun.exe'
+                if vmware_dir != '':
+                    self.VMRUN_PATH = os.path.join(vmware_dir, 'vmrun.exe')
             else:
-                if os.environ.has_key("PATH"):
-                    for path in os.environ["PATH"].split(os.pathsep):
-                        tmp_file = path + os.sep + "vmrun"
+                if os.environ.has_key('PATH'):
+                    for path in os.environ['PATH'].split(os.pathsep):
+                        tmp_file = os.path.join(path, 'vmrun')
                         if os.path.exists(tmp_file):
                             self.VMRUN_PATH = tmp_file
                             break
 
+        if not os.path.exists(self.VMRUN_PATH) or not os.path.isfile(self.VMRUN_PATH):
+            raise FileNotFoundError('The vmrun executble {!r} was not '
+                                    'found.'.format(self.VMRUN_PATH))
+
+    # TODO maintain vm's power state
+    def __init__(self, vmx, user='', password='', vmrun='', debug=False):
+        """
+        """
+        self.VM_FILE = vmx         # TODO strict censor?
+        self.VM_ADMIN = user
+        self.VM_PASS = password
+        self.DEBUG = debug
+
+        self._get_vmrun_path(vmrun)
+
     #
     # POWER COMMANDS
     #
-    def start( self ):
-        '''
+    def start(self):
+        """
         COMMAND                  PARAMETERS           DESCRIPTION
         start                    Path to vmx file     Start a VM or Team
                                  or vmtm file
-        '''
-        return self.vmrun( 'start' )
+        """
+        return self.vmrun('start')
 
-    def stop( self, mode='soft' ):
-        '''
+    def stop(self, mode='soft'):
+        """
         stop                     Path to vmx file     Stop a VM or Team
                                  or vmtm file
                                  [hard|soft]
-        '''
-        return self.vmrun( 'stop', mode )
+        """
+        return self.vmrun('stop', mode)
 
-    def reset( self, mode='soft' ):
-        '''
+    def reset(self, mode='soft'):
+        """
         reset                    Path to vmx file     Reset a VM or Team
                                  or vmtm file
                                  [hard|soft]
-        '''
-        return self.vmrun( 'reset', mode )
+        """
+        return self.vmrun('reset', mode)
 
-    def suspend( self, mode='soft' ):
-        '''
+    def suspend(self, mode='soft'):
+        """
         suspend                  Path to vmx file     Suspend a VM or Team
                                  or vmtm file
                                  [hard|soft]
-        '''
-        return self.vmrun( 'suspend', mode )
+        """
+        return self.vmrun('suspend', mode)
 
-    def pause( self ):
-        '''
+    def pause(self):
+        """
         pause                    Path to vmx file     Pause a VM
-        '''
-        return self.vmrun( 'pause' )
+        """
+        return self.vmrun('pause')
 
-    def unpause( self ):
-        '''
+    def unpause(self):
+        """
         unpause                  Path to vmx file     Unpause a VM
-        '''
-        return self.vmrun( 'unpause' )
+        """
+        return self.vmrun('unpause')
 
     #
     # SNAPSHOT COMMANDS
     #
-    def listSnapshots( self ):
-        return self.vmrun( 'listSnapshots' )
+    def listSnapshots(self):
+        return self.vmrun('listSnapshots')
 
-    def snapshot( self, name='binjo' ):
-        '''
+    def snapshot(self, name='Snapshot'):
+        """
         snapshot                 Path to vmx file     Create a snapshot of a VM
                                  Snapshot name
-        '''
-        return self.vmrun( 'snapshot', name )
+        """
+        return self.vmrun('snapshot', name)
 
-    def deleteSnapshot( self, name='binjo' ):
-        '''
+    def deleteSnapshot(self, name='Snapshot'):
+        """
         deleteSnapshot           Path to vmx file     Remove a snapshot from a VM
                                  Snapshot name
-        '''
-        return self.vmrun( 'deleteSnapshot', name )
+        """
+        return self.vmrun('deleteSnapshot', name)
 
-    def revertToSnapshot( self, name='binjo' ):
-        '''
+    def revertToSnapshot(self, name='Snapshot'):
+        """
         revertToSnapshot         Path to vmx file     Set VM state to a snapshot
                                  Snapshot name
-        '''
-        return self.vmrun( 'revertToSnapshot', name )
+        """
+        return self.vmrun('revertToSnapshot', name)
 
     #
     # RECORD/REPLAY COMMANDS
     #
-    def beginRecording( self, snap_name='binjo' ):
-        '''
+    def beginRecording(self, snap_name='Snapshot'):
+        """
         beginRecording           Path to vmx file     Begin recording a VM
                                  Snapshot name
-        '''
-        return self.vmrun( 'beginRecording', snap_name )
+        """
+        return self.vmrun('beginRecording', snap_name)
 
-    def endRecording( self ):
-        '''
+    def endRecording(self):
+        """
         endRecording             Path to vmx file     End recording a VM
-        '''
-        return self.vmrun( 'endRecording' )
+        """
+        return self.vmrun('endRecording')
 
-    def beginReplay( self, snap_name='binjo' ):
-        '''
+    def beginReplay(self, snap_name='Snapshot'):
+        """
         beginReplay              Path to vmx file     Begin replaying a VM
                                  Snapshot name
-        '''
-        return self.vmrun( 'beginReplay', snap_name )
+        """
+        return self.vmrun('beginReplay', snap_name)
 
-    def endReplay( self ):
-        '''
+    def endReplay(self):
+        """
         endReplay                Path to vmx file     End replaying a VM
-        '''
-        return self.vmrun( 'endReplay' )
+        """
+        return self.vmrun('endReplay')
 
     #
     # GUEST OS COMMANDS
     #
-    def runProgramInGuest( self, program, mode, *para ):
-        '''
+    def runProgramInGuest(self, program, mode, *para):
+        """
         runProgramInGuest        Path to vmx file     Run a program in Guest OS
                                  [-noWait]
                                  [-activeWindow]
                                  [-interactive]
                                  Complete-Path-To-Program
                                  [Program arguments]
-        '''
-        modes = { "n" : "-noWait",
-                  "a" : "-activeWindow",
-                  "i" : "-interactive" }
+        """
+        modes = {'n' : '-noWait',
+                 'a' : '-activeWindow',
+                 'i' : '-interactive'}
 
         if modes.has_key(mode):
-            return self.vmrun( 'runProgramInGuest', modes[mode], program, *para )
+            return self.vmrun('runProgramInGuest', modes[mode], program, *para)
         else:
-            return "error mode : %s" % mode
+            return 'error mode : {}'.format(mode)
 
     # return True/False
-    def fileExistsInGuest( self, file ):
-        '''
+    def fileExistsInGuest(self, file):
+        """
         fileExistsInGuest        Path to vmx file     Check if a file exists in Guest OS
                                  Path to file in guest
-        '''
-        return "not" not in "".join( self.vmrun( 'fileExistsInGuest', file ) )
+        """
+        return 'not' not in ''.join(self.vmrun('fileExistsInGuest', file))
 
-    def setSharedFolderState( self, share_name, new_path, mode='readonly' ):
-        '''
+    def setSharedFolderState(self, share_name, new_path, mode='readonly'):
+        """
         setSharedFolderState     Path to vmx file     Modify a Host-Guest shared folder
                                  Share name
                                  Host path
                                  writable | readonly
-        '''
-        return self.vmrun( 'setSharedFolderState', share_name, new_path, mode )
+        """
+        return self.vmrun('setSharedFolderState', share_name, new_path, mode)
 
-    def addSharedFolder( self, share_name, host_path ):
-        '''
+    def addSharedFolder(self, share_name, host_path):
+        """
         addSharedFolder          Path to vmx file     Add a Host-Guest shared folder
                                  Share name
                                  New host path
-        '''
-        return self.vmrun( 'addSharedFolder', share_name, host_path )
+        """
+        return self.vmrun('addSharedFolder', share_name, host_path)
 
-    def removeSharedFolder( self, share_name ):
-        '''
+    def removeSharedFolder(self, share_name):
+        """
         removeSharedFolder       Path to vmx file     Remove a Host-Guest shared folder
                                  Share name
-        '''
-        return self.vmrun( 'removeSharedFolder', share_name )
+        """
+        return self.vmrun('removeSharedFolder', share_name)
 
-    def enableSharedFolders( self ):
-        '''
+    def enableSharedFolders(self):
+        """
         enableSharedFolders      Path to vmx file     Enable shared folders in Guest
                                  [runtime]
-        '''
-        return self.vmrun( 'enableSharedFolders' )
+        """
+        return self.vmrun('enableSharedFolders')
 
-    def disableSharedFolders( self ):
-        '''
+    def disableSharedFolders(self):
+        """
         disableSharedFolders     Path to vmx file     Disable shared folders in Guest
                                  [runtime]
-        '''
-        return self.vmrun( 'disableSharedFolders' )
+        """
+        return self.vmrun('disableSharedFolders')
 
-    def listProcessesInGuest( self ):
-        '''
+    def listProcessesInGuest(self):
+        """
         listProcessesInGuest     Path to vmx file     List running processes in Guest OS
-        '''
-        return self.vmrun( 'listProcessesInGuest' )
+        """
+        return self.vmrun('listProcessesInGuest')
 
-    def killProcessInGuest( self, pid ):
-        '''
+    def killProcessInGuest(self, pid):
+        """
         killProcessInGuest       Path to vmx file     Kill a process in Guest OS
                                  process id
-        '''
-        return self.vmrun( 'killProcessInGuest', pid )
+        """
+        return self.vmrun('killProcessInGuest', pid)
 
-    def runScriptInGuest( self, interpreter_path, script ):
-        '''
+    def runScriptInGuest(self, interpreter_path, script):
+        """
         runScriptInGuest         Path to vmx file     Run a script in Guest OS
                                  Interpreter path
                                  script_text
-        '''
-        return self.vmrun( 'runScriptInGuest', interpreter_path, script )
+        """
+        return self.vmrun('runScriptInGuest', interpreter_path, script)
 
-    def deleteFileInGuest( self, file ):
-        '''
+    def deleteFileInGuest(self, file):
+        """
         deleteFileInGuest        Path to vmx file     Delete a file in Guest OS
                                  Path in guest
-        '''
-        return self.vmrun( 'deleteFileInGuest', file )
+        """
+        return self.vmrun('deleteFileInGuest', file)
 
-    def createDirectoryInGuest( self, dir ):
-        '''
+    def createDirectoryInGuest(self, dir):
+        """
         createDirectoryInGuest   Path to vmx file     Create a directory in Guest OS
                                  Directory path in guest
-        '''
-        return self.vmrun( 'createDirectoryInGuest', dir )
+        """
+        return self.vmrun('createDirectoryInGuest', dir)
 
-    def deleteDirectoryInGuest( self, dir ):
-        '''
+    def deleteDirectoryInGuest(self, dir):
+        """
         deleteDirectoryInGuest   Path to vmx file     Delete a directory in Guest OS
                                  Directory path in guest
-        '''
-        return self.vmrun( 'deleteDirectoryInGuest', dir )
+        """
+        return self.vmrun('deleteDirectoryInGuest', dir)
 
-    def listDirectoryInGuest( self, dir ):
-        '''
+    def listDirectoryInGuest(self, dir):
+        """
         listDirectoryInGuest     Path to vmx file     List a directory in Guest OS
                                  Directory path in guest
-        '''
-        return self.vmrun( 'listDirectoryInGuest', dir )
+        """
+        return self.vmrun('listDirectoryInGuest', dir)
 
-    def copyFileFromHostToGuest( self, host_path, guest_path ):
-        '''
+    def copyFileFromHostToGuest(self, host_path, guest_path):
+        """
         copyFileFromHostToGuest  Path to vmx file     Copy a file from host OS to guest OS
                                  Path on host
                                  Path in guest
-        '''
-        return self.vmrun( 'copyFileFromHostToGuest', host_path, guest_path )
+        """
+        return self.vmrun('copyFileFromHostToGuest', host_path, guest_path)
 
-    def copyFileFromGuestToHost( self, guest_path, host_path ):
-        '''
+    def copyFileFromGuestToHost(self, guest_path, host_path):
+        """
         copyFileFromGuestToHost  Path to vmx file     Copy a file from guest OS to host OS
                                  Path in guest
                                  Path on host
-        '''
-        return self.vmrun( 'copyFileFromGuestToHost', guest_path, host_path )
+        """
+        return self.vmrun('copyFileFromGuestToHost', guest_path, host_path)
 
-    def renameFileInGuest( self, org_name, new_name ):
-        '''
+    def renameFileInGuest(self, org_name, new_name):
+        """
         renameFileInGuest        Path to vmx file     Rename a file in Guest OS
                                  Original name
                                  New name
-        '''
-        return self.vmrun( 'renameFileInGuest', org_name, new_name )
+        """
+        return self.vmrun('renameFileInGuest', org_name, new_name)
 
-    def captureScreen( self, path_on_host ):
-        '''
+    def captureScreen(self, path_on_host):
+        """
         captureScreen            Path to vmx file     Capture the screen of the VM to a local file
                                  Path on host
-        '''
-        return self.vmrun( 'captureScreen', path_on_host )
+        """
+        return self.vmrun('captureScreen', path_on_host)
 
-    def writeVariable( self, mode, v_name, v_value ):
-        '''
+    def writeVariable(self, mode, var_name, var_value):
+        """
         writeVariable            Path to vmx file     Write a variable in the VM state
                                  [runtimeConfig|guestEnv]
                                  variable name
                                  variable value
-        '''
+        """
         if mode is not None:
-            return self.vmrun( 'writeVariable', mode, v_name, v_value )
+            return self.vmrun('writeVariable', mode, var_name, var_value)
         else:
-            return self.vmrun( 'writeVariable', v_name, v_value )
+            return self.vmrun('writeVariable', var_name, var_value)
 
-    def readVariable( self, mode, v_name ):
-        '''
+    def readVariable(self, mode, var_name):
+        """
         readVariable             Path to vmx file     Read a variable in the VM state
                                  [runtimeConfig|guestEnv]
                                  variable name
-        '''
+        """
         if mode is not None:
-            return self.vmrun( 'readVariable', mode, v_name )
+            return self.vmrun('readVariable', mode, var_name)
         else:
-            return self.vmrun( 'readVariable', v_name )
+            return self.vmrun('readVariable', var_name)
 
     #
     # VPROBE COMMANDS
     #
-    def vprobeVersion( self ):
-        '''
+    def vprobeVersion(self):
+        """
         vprobeVersion            Path to vmx file     List VP version
-        '''
-        return self.vmrun( 'vprobeVersion' )
+        """
+        return self.vmrun('vprobeVersion')
 
-    def vprobeLoad( self, script ):
-        '''
+    def vprobeLoad(self, script):
+        """
         vprobeLoad               Path to vmx file     Load VP script
                                  'VP script text'
-        '''
-        return self.vmrun( 'vprobeLoad', script )
+        """
+        return self.vmrun('vprobeLoad', script)
 
-    def vprobeLoadFile( self, vp ):
-        '''
+    def vprobeLoadFile(self, vp):
+        """
         vprobeLoadFile           Path to vmx file     Load VP file
                                  Path to VP file
-        '''
-        return self.vmrun( 'vprobeLoadFile', vp )
+        """
+        return self.vmrun('vprobeLoadFile', vp)
 
-    def vprobeReset( self ):
-        '''
+    def vprobeReset(self):
+        """
         vprobeReset              Path to vmx file     Disable all vprobes
-        '''
-        return self.vmrun( 'vprobeReset' )
+        """
+        return self.vmrun('vprobeReset')
 
-    def vprobeListProbes( self ):
-        '''
+    def vprobeListProbes(self):
+        """
         vprobeListProbes         Path to vmx file     List probes
-        '''
-        return self.vmrun( 'vprobeListProbes' )
+        """
+        return self.vmrun('vprobeListProbes')
 
-    def vprobeListGlobals( self ):
-        '''
+    def vprobeListGlobals(self):
+        """
         vprobeListGlobals        Path to vmx file     List global variables
-        '''
-        return self.vmrun( 'vprobeListGlobals' )
+        """
+        return self.vmrun('vprobeListGlobals')
 
     #
     # GENERAL COMMANDS
     #
-    def list( self ):
-        '''
+    def list(self):
+        """
         list                                          List all running VMs
-        '''
-        return self.vmrun( 'list' )
+        """
+        return self.vmrun('list')
 
-    def upgradevm( self ):
-        '''
+    def upgradevm(self):
+        """
         upgradevm                Path to vmx file     Upgrade VM file format, virtual hw
-        '''
-        return self.vmrun( 'upgradevm' )
+        """
+        return self.vmrun('upgradevm')
 
-    def installtools( self ):
-        '''
+    def installtools(self):
+        """
         installtools             Path to vmx file     Install Tools in Guest OS
-        '''
-        return self.vmrun( 'installtools' )
+        """
+        return self.vmrun('installtools')
 
-    def register( self ):
-        '''
+    def register(self):
+        """
         register                 Path to vmx file     Register a VM
-        '''
-        return self.vmrun( 'register' )
+        """
+        return self.vmrun('register')
 
-    def unregister( self ):
-        '''
-        unregister                 Path to vmx file     Unregister a VM
-        '''
-        return self.vmrun( 'unregister' )
+    def unregister(self):
+        """
+        unregister               Path to vmx file     Unregister a VM
+        """
+        return self.vmrun('unregister')
 
-    def listRegisteredVM( self ):
-        '''
+    def listRegisteredVM(self):
+        """
         listRegisteredVM                              List registered VMs
-        '''
-        return self.vmrun( 'listRegisteredVM' )
+        """
+        return self.vmrun('listRegisteredVM')
 
-    def deleteVM( self ):
-        '''
+    def deleteVM(self):
+        """
         deleteVM                 Path to vmx file     Delete a VM
-        '''
-        return self.vmrun( 'deleteVM' )
+        """
+        return self.vmrun('deleteVM')
 
-    def clone( self, dest_vmx, mode, snap_name='binjo' ):
-        '''
+    def clone(self, dest_vmx, mode, snap_name='Snapshot'):
+        """
         clone                    Path to vmx file     Create a copy of the VM
                                  Path to destination vmx file
                                  full|linked
                                  [Snapshot name]
-        '''
-        return self.vmrun( 'clone', dest_vmx, mode, snap_name )
+        """
+        return self.vmrun('clone', dest_vmx, mode, snap_name)
 
 if __name__ == '__main__':
-    print 'Hello World'
+    print('Hello World')
